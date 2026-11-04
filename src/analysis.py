@@ -17,6 +17,14 @@ def reassemble_data_zip():
         print("No data.zip chunks found.")
         return
 
+    # Check if the chunks are git-lfs pointers instead of actual data
+    with open(chunks[0], "rb") as f:
+        header = f.read(25)
+        if header.startswith(b"version https://git-lfs"):
+            print("Error: data.zip chunks are git-lfs pointers, not the actual files.")
+            print("Please run 'git lfs pull' to download the real data before proceeding.")
+            sys.exit(1)
+
     print("Reassembling data.zip from chunks...")
     with open("data.zip", "wb") as output:
         for chunk in chunks:
@@ -40,14 +48,8 @@ def cleanup_data_directory():
     data_dir = Path("data")
     if data_dir.exists():
         print("Cleaning up data directory...")
-        for item in data_dir.iterdir():
-            if item.is_file():
-                item.unlink()
-            elif item.is_dir():
-                import shutil
-
-                shutil.rmtree(item)
-        data_dir.rmdir()
+        import shutil
+        shutil.rmtree(data_dir)
         print("Cleanup complete.")
 
     # delete data.zip as well
@@ -58,7 +60,11 @@ def cleanup_data_directory():
 
 
 def run_analysis():
-    generate_data_directory()
+    data_dir = Path("data")
+    if not data_dir.exists():
+        print("Error: data directory not found.")
+        print("Please run 'make setup' or 'uv run main.py setup' first.")
+        sys.exit(1)
 
     analysis_dir = Path("research/analysis")
     scripts = sorted(analysis_dir.glob("*.py"))
@@ -70,7 +76,7 @@ def run_analysis():
         )
         return script.name, result
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futures = {executor.submit(run_script, s): s for s in scripts}
         for future in concurrent.futures.as_completed(futures):
             name, result = future.result()
@@ -80,11 +86,14 @@ def run_analysis():
                 print(f"[OK] {name}")
 
     print(f"\nAll {len(scripts)} analysis scripts complete.")
-    cleanup_data_directory()
 
 
 def run_single_analysis(script_name: str):
-    generate_data_directory()
+    data_dir = Path("data")
+    if not data_dir.exists():
+        print("Error: data directory not found.")
+        print("Please run 'make setup' or 'uv run main.py setup' first.")
+        sys.exit(1)
 
     if not script_name.endswith(".py"):
         script_name = f"{script_name}.py"
@@ -103,5 +112,3 @@ def run_single_analysis(script_name: str):
         print(f"[OK] {script_name}")
         if result.stdout:
             print(result.stdout)
-
-    cleanup_data_directory()
